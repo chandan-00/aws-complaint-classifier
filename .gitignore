@@ -1,0 +1,12 @@
+.venv/
+.env
+data/
+model/*.onnx
+model/*.bin
+notebooks/.ipynb_checkpoints/
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+__pycache__/
+.DS_Store
