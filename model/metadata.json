@@ -1,0 +1,12 @@
+{
+  "labels": [
+    "placeholder_0",
+    "placeholder_1",
+    "placeholder_2",
+    "placeholder_3",
+    "placeholder_4",
+    "placeholder_5"
+  ],
+  "max_length": 256,
+  "base_model": "distilbert-base-uncased"
+}
