@@ -1,0 +1,5 @@
+numpy==1.26.4
+onnx==1.22.0
+onnxruntime==1.23.2
+boto3==1.43.89
+tokenizers==0.22.2

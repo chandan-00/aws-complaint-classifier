@@ -1,0 +1,8 @@
+.venv/
+notebooks/
+data/
+terraform/
+.git/
+*.ipynb
+model/*fp32*
+model/*prepped*
