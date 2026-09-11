@@ -10,3 +10,4 @@ notebooks/.ipynb_checkpoints/
 .terraform.lock.hcl
 __pycache__/
 .DS_Store
+docs/*
