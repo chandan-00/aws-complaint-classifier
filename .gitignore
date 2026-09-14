@@ -11,3 +11,6 @@ notebooks/.ipynb_checkpoints/
 __pycache__/
 .DS_Store
 docs/*
+
+# trained weights downloaded from Colab (section 19)
+distilbert-complaints/
