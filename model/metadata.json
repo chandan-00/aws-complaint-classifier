@@ -1,12 +1,12 @@
 {
   "labels": [
-    "placeholder_0",
-    "placeholder_1",
-    "placeholder_2",
-    "placeholder_3",
-    "placeholder_4",
-    "placeholder_5"
+    "checking_savings",
+    "credit_card",
+    "credit_reporting",
+    "debt_collection",
+    "mortgage",
+    "student_loan"
   ],
   "max_length": 256,
-  "base_model": "distilbert-base-uncased"
+  "base_model": "./distilbert-complaints/distilbert-complaints"
 }
