@@ -24,7 +24,7 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 LABELS = META["labels"]
 MAX_LEN = META["max_length"]
-MODEL_VERSION = os.environ.get("MODEL_VERSION", "distilbert-v1-int8")
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "distilbert-v2-int8")
 DDB_TABLE = os.environ.get("DDB_TABLE")
 BUCKET = os.environ.get("BUCKET")
 
@@ -92,12 +92,23 @@ def _store(complaint_id: str, result: dict) -> None:
     )
 
 def handler(event, context):
+    # Direct invoke (the RIE curl in section 12, and console tests): no SQS envelope.
     if "Records" not in event:
         result = predict(event["text"])
-        return {
-            "complaint_id": event.get("complaint_id"),
-            "category": result["category"],
-            "confidence": result["confidence"],
-            "model_version": os.environ.get("MODEL_VERSION", "distilbert-v1-int8"),
-        }
-    # existing SQS path unchanged: S3 read, predict, DynamoDB write
+        return {"complaint_id": event.get("complaint_id"), **result}
+
+    # SQS path. batch_size is 1 (section 25.1), so a failure fails one message and that
+    # message alone is redriven, then dead-lettered after maxReceiveCount.
+    results = []
+    for record in event["Records"]:
+        message = json.loads(record["body"])
+        complaint_id, text = _load_text(message)
+
+        result = predict(text)
+        _store(complaint_id, result)
+
+        # One structured line per message: this is what CloudWatch Logs Insights queries.
+        print(json.dumps({"event": "prediction_stored", "complaint_id": complaint_id, **result}))
+        results.append({"complaint_id": complaint_id, **result})
+
+    return {"processed": len(results), "results": results}
