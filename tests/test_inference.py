@@ -1,6 +1,8 @@
 """Section 32: the inference tier's contract, against the real INT8 model."""
 import json
 
+import boto3
+
 
 def test_inference_returns_required_fields(inference):
     result = inference.predict("I found an error on my credit report.")
@@ -15,7 +17,6 @@ def test_sqs_record_is_read_from_s3_predicted_and_stored(inference, aws_env, mon
     monkeypatch.setattr(inference, "BUCKET", aws_env["bucket"])
     monkeypatch.setattr(inference, "DDB_TABLE", aws_env["table"])
     monkeypatch.setattr(inference, "_s3", aws_env["s3"])
-    import boto3
     monkeypatch.setattr(inference, "_ddb", boto3.resource("dynamodb", region_name="us-east-1"))
 
     aws_env["s3"].put_object(
