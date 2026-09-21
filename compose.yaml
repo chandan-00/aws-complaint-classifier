@@ -1,0 +1,31 @@
+services:
+  floci:
+    image: floci/floci:2.1.0
+    container_name: floci
+    ports:
+      - "4566:4566"
+    environment:
+      # Default is `memory`: everything created is lost on restart, which costs an
+      # afternoon the first time a container recycles mid-session (section 22).
+      - FLOCI_STORAGE_MODE=hybrid
+      - FLOCI_DEFAULT_REGION=us-east-1
+      # Lambda containers resolve the emulator by service name, not localhost.
+      - FLOCI_HOSTNAME=floci
+      - LAMBDA_DOCKER_NETWORK=aws-complaint-classifier_default
+      # Floci's Java docker client cannot connect to the Docker Desktop socket
+      # directly (BindException: Permission denied), so it goes through socat.
+      - DOCKER_HOST=tcp://dockerproxy:2375
+    volumes:
+      - ./data/floci:/root/.floci
+    user: root
+    depends_on:
+      - dockerproxy
+
+  # Floci does not fake Lambda: it runs the ONNX image in a real container, so it needs
+  # the host Docker daemon. Without this, S3 and SQS work and Lambda fails.
+  dockerproxy:
+    image: alpine/socat:1.8.0.0
+    container_name: dockerproxy
+    command: tcp-listen:2375,fork,reuseaddr unix-connect:/var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
