@@ -14,3 +14,6 @@ docs/*
 
 # trained weights downloaded from Colab (section 19)
 distilbert-complaints/
+
+# zipped API Lambda built by terraform (archive_file)
+terraform/.build/
