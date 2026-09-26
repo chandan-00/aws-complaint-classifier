@@ -27,8 +27,12 @@ export AWS_PAGER=""
 export AWS_REGION=${AWS_REGION:-us-east-1}
 REPO_NAME=complaint-inference
 LOCAL_IMAGE="$REPO_NAME:$TAG"
-APPROVE=()
-[ "${AUTO_APPROVE:-0}" = "1" ] && APPROVE=(-auto-approve)
+# A string, not an array: macOS ships bash 3.2, where "${arr[@]}" on an empty array is
+# an unbound-variable error under set -u. Left unquoted below so empty expands to nothing.
+APPROVE=""
+if [ "${AUTO_APPROVE:-0}" = "1" ]; then
+  APPROVE="-auto-approve"
+fi
 
 echo "== Preflight (section 35)"
 if ! IDENTITY=$(aws sts get-caller-identity --query '[Account, Arn]' --output text 2>&1); then
@@ -65,7 +69,7 @@ fi
 echo "== Phase A: ECR repository only"
 # -target is normally a smell; this is the legitimate case: an external side effect
 # (docker push) has to happen between two resources Terraform would create in one pass.
-$TF apply "${APPROVE[@]}" -var "image_tag=$TAG" -target=aws_ecr_repository.inference
+$TF apply $APPROVE -var "image_tag=$TAG" -target=aws_ecr_repository.inference
 ECR_URI=$($TF output -raw ecr_repository_url)
 
 echo "== Phase B: build, tag, push $TAG"
@@ -90,7 +94,7 @@ aws ecr describe-images --repository-name "$REPO_NAME" --image-ids "imageTag=$TA
   --query 'imageDetails[0].[imageTags[0], imageSizeInBytes, imagePushedAt]' --output text
 
 echo "== Phase C: everything else"
-$TF apply "${APPROVE[@]}" -var "image_tag=$TAG"
+$TF apply $APPROVE -var "image_tag=$TAG"
 
 INVOKE_URL=$($TF output -raw invoke_url)
 KEY_ID=$($TF output -raw api_key_id)
