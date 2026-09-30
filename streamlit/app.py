@@ -38,11 +38,12 @@ def show_result(resp: requests.Response) -> None:
     body = resp.json()
     if resp.status_code == 200:
         st.success(f"**{body['prediction']}**")
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("Confidence", f"{float(body['confidence']):.1%}")
         col2.metric("Inference", f"{float(body['inference_ms']):.0f} ms")
-        col3.metric("Model", body["model_version"])
-        st.caption(f"Processed at {body['processed_at']}")
+        # Text, not a metric: metric values use a large font and get ellipsised in a
+        # column, which cut "distilbert-v4-int8" down to "distilbert-v4...".
+        st.markdown(f"Model `{body['model_version']}` · processed at {body['processed_at']}")
     elif resp.status_code == 404:
         # The API cannot tell "still queued" from "never existed" without another lookup.
         st.info("Not scored yet — the complaint is queued or still being processed. "
