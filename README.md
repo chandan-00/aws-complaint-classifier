@@ -10,9 +10,9 @@ accuracy, size, latency and cost at every step, and an honest account of what di
 
 | | |
 |---|---|
-| Model size | **268 MB → 67 MB** (INT8, 3.98× smaller), no measurable macro-F1 loss |
-| Warm latency on Lambda | **158 ms p50** at 3008 MB, 229 ms at 2048 MB |
-| Cost | **~$0.024 per 1,000 predictions** (list-price estimate); **$0** actually spent |
+| Model size | **268 MB → 67 MB** (INT8, 3.98× smaller); macro-F1 0.874 → 0.876, 97.7% of predictions unchanged |
+| Warm latency on Lambda | **158 ms p50** at 3008 MB, 229 ms at 2048 MB (preliminary: ~25 direct invocations each) |
+| Cost | **~$0.024 per 1,000 predictions** (list-price estimate from median duration); **$0.02** actually spent, all of it Cost Explorer API fees |
 | Infrastructure | 28 AWS resources in Terraform, validated on a local AWS emulator first |
 | Surprise | the TF-IDF baseline (**0.893** macro-F1) beat DistilBERT (**0.874**) |
 
@@ -21,8 +21,10 @@ accuracy, size, latency and cost at every step, and an honest account of what di
   <img src="diagrams/debt_collection_fault.png" width="49%" alt="Streamlit client: a credit-reporting complaint misclassified as debt_collection at 46.1% confidence">
 </p>
 
-*Left: a correct, confident prediction. Right: a real miss (a credit-reporting complaint
-labelled `debt_collection`), with confidence to match: 46.1%.*
+*Left: a correct prediction at 96.9% confidence. Right: a real miss (a credit-reporting
+complaint labelled `debt_collection`) at 46.1%. On the test set, wrong predictions have a
+median confidence of 0.68 against 0.93 for correct ones, though most errors still score
+above 0.6 (see [Results](#results)).*
 
 <details>
 <summary>One prediction per category, from the deployed API</summary>
@@ -66,14 +68,25 @@ Test split: 810 complaints, 135 per class.
 - **The baseline wins** by 1.9 points of macro-F1, and on five of six classes.
   DistilBERT is ahead only on mortgage. The result is reported as measured rather than
   tuned until the transformer came out ahead.
-- **The ONNX export is faithful**: FP32 ONNX reproduces the PyTorch score exactly.
-- **INT8 quantization cost nothing measurable**: +0.0015 macro-F1 is within noise on
-  810 rows, for a 74.9% smaller model that scores 1.56× faster on CPU.
+- **The ONNX export matches PyTorch prediction for prediction**: 810 of 810 test complaints
+  get the same class, and the largest logit difference is 1.1 × 10⁻⁵.
+- **INT8 quantization changes a few predictions but not the score.** 791 of 810 predictions
+  (97.7%) are identical to FP32; the 19 that change roughly cancel out, leaving macro-F1 at
+  0.876 vs 0.874, a difference within noise on 810 rows. The model is 74.9% smaller and
+  scored 1.56× faster on a laptop CPU (batched).
+- **Confidence is informative, but not a reliable error filter.** On the deployed INT8 model,
+  accuracy is 97.8% for the 493 predictions above 0.9 confidence and 53.8% for the 80 below
+  0.6. Wrong predictions have a median confidence of 0.68 (correct: 0.93), yet 63% of errors
+  still score 0.6 or higher.
+
+Per-prediction comparisons come from `model/compare_backends.py`.
 
 ### Serving on AWS Lambda
 
-Measured from CloudWatch `REPORT` lines. Warm = invocations without `Init Duration`;
-18-25 warm invocations per row. Cold init is a single sample at 1024 and 3008 MB.
+Preliminary measurements from CloudWatch `REPORT` lines: 18-25 warm direct invocations per
+setting, in one session, with the same short complaint. Warm = invocations without
+`Init Duration`. Cold init is a single sample at 1024 and 3008 MB. Treat the p95 column in
+particular as indicative: with ~25 samples it rests on one or two invocations.
 
 | Lambda memory | Warm p50 | Warm p95 | Cold init | Max memory used | Inference cost / 1k |
 |---|---|---|---|---|---|
@@ -83,15 +96,18 @@ Measured from CloudWatch `REPORT` lines. Warm = invocations without `Init Durati
 
 - **More memory was cheaper, not dearer.** Memory use never exceeded ~360 MB, so the extra
   memory only buys CPU (Lambda allocates vCPU in proportion to memory). At 1024 MB the
-  function runs 2.6× slower, which makes it **29% more expensive per request** than 2048 MB.
-  3008 MB is **31% faster** than 2048 MB for **1% more** cost.
-- **Latency is constant per request**: every input is padded to 256 tokens, so a one-line
-  complaint costs the same compute as a long one (both screenshots above: 227 ms).
+  median duration was 2.6× longer, making it **29% more expensive per request** than
+  2048 MB at median. 3008 MB was **31% faster** than 2048 MB at median for **1% more**.
+- **Input length does not change the work per request**: every input is padded to 256
+  tokens, so the model runs the same computation for a one-line complaint as for a long one.
+  Latency still varies run to run (see p50 vs p95); length just is not one of the causes.
+  Not separately benchmarked by input length.
 
 ### Cost
 
-Estimated from measured latency and list prices (us-east-1, before Free Tier), for one
-prediction = POST + inference + GET:
+Estimated from the measured **median** duration and list prices (us-east-1, before Free
+Tier), for one prediction = POST + inference + GET. The mean duration was not measured;
+latency tails usually pull it above the median, so treat this as a lower-end estimate:
 
 | Component | $ per 1,000 |
 |---|---|
@@ -103,7 +119,8 @@ prediction = POST + inference + GET:
 
 The model is only about **a third** of the cost of a prediction; at this latency, the
 request plumbing (API Gateway and S3) costs more than the inference.
-**Actual spend for the whole project: $0.00**: everything stayed inside Free Tier.
+**Actual spend for the whole project: $0.02**, all of it Cost Explorer API fees ($0.01 per
+query) from checking the bill. The pipeline itself stayed inside Free Tier and cost $0.
 
 ---
 
@@ -143,11 +160,13 @@ DynamoDB. `GET /complaints/{id}` returns it, or `pending_or_unknown` until it ex
 
 - **Asynchronous via SQS.** The front door stays fast regardless of model latency, and the
   inference tier can retry, back up and fail without affecting it.
-- **The message carries a pointer, not the text.** SQS caps messages at 256 KB; S3 has no
-  practical limit, and keeps the raw input for re-scoring after a model change.
-- **SQS visibility timeout = 6 × the Lambda timeout** (360 s vs 60 s), which AWS requires for
-  an event source mapping. Batch size 1, so one bad message fails alone; 3 attempts, then
-  the dead-letter queue.
+- **The message carries a pointer, not the text.** SQS messages are capped at 1 MiB; S3
+  objects are not meaningfully limited, and S3 keeps the raw input after the message is
+  consumed, for re-scoring after a model change.
+- **SQS visibility timeout = 6 × the Lambda timeout** (360 s vs 60 s), following AWS's
+  recommendation for SQS event sources. What AWS enforces is weaker: the function timeout
+  must not exceed the queue's visibility timeout. Batch size 1, so one bad message fails
+  alone; 3 attempts, then the dead-letter queue.
 - **One API Lambda for both routes.** The security boundary that matters is between the API
   tier and the inference tier, and that is kept: two **mirror-image IAM roles** (API writes
   S3, reads DynamoDB; inference reads S3, writes DynamoDB), every permission scoped to a
@@ -222,13 +241,14 @@ for the baseline, 25 for DistilBERT): debt complaints usually also describe what
 collector reported to the credit bureaus. DistilBERT also leaks checking/savings complaints
 into credit card (13), which the baseline mostly avoids.
 
-**Why the baseline wins.** Product names appear literally in most complaints ("mortgage",
-"student loan"), which is exactly the signal TF-IDF captures; DistilBERT had 2 epochs on
-6,480 rows and sees only the first 256 tokens.
+**Why the baseline might win** (hypotheses, not tested): complaints often name their
+product outright ("mortgage", "student loan"), which is exactly the signal TF-IDF captures;
+DistilBERT had 2 epochs on 6,480 rows and sees only the first 256 tokens. A learning curve
+over training-set size would separate these.
 
 **Single-label by design.** The model picks exactly one of six categories (softmax over
 mutually exclusive classes), because each CFPB complaint has one product. A complaint that is
-genuinely about two products still gets one answer, often confidently: *"A debt collector
+genuinely about two products still gets one answer, and can be confident about it: *"A debt collector
 is reporting an account on my credit report that is not mine…"* is classified
 `debt_collection` at 90.6%, with credit reporting at 5.0%.
 
@@ -342,8 +362,9 @@ Then confirm in the console or CLI that nothing is left: Terraform only removes 
   missing S3 object came back as `AccessDenied` rather than `NoSuchKey`, because S3 hides
   whether a key exists from callers without `s3:ListBucket`. Least privilege had made
   errors less informative, a trade-off that only shows up on the real service.
-- **Safety margins have a cost.** The 6× visibility rule that prevents duplicate processing
-  also means a failing message takes ~17 minutes to reach the dead-letter queue.
+- **Safety margins have a cost.** The recommended 6× visibility timeout guards against
+  duplicate processing, but it also means a failing message waits through each timeout:
+  ~17 minutes to reach the dead-letter queue in the local emulator test.
 - **Small portability traps**: macOS ships bash 3.2, where an empty array is an error under
   `set -u`, and zsh does not split unquoted variables. Each broke a script once.
 
@@ -359,8 +380,10 @@ Then confirm in the console or CLI that nothing is left: Terraform only removes 
 - **Dynamic padding.** Padding every input to 256 tokens wastes compute on short complaints.
 - **Longer inputs.** 35% of complaints are truncated; a longer window or summarisation
   first could recover accuracy, at a latency cost.
-- **Low-confidence routing.** When the model is wrong, its confidence tends to be low (46%
-  above). Sending low-confidence predictions to human review would turn that into a feature.
+- **Low-confidence routing.** Sending predictions below 0.6 confidence to human review
+  would cover 10% of traffic (80 of 810 test complaints) and catch 37 of the 101 errors.
+  Useful, but most errors are confident, so it complements accuracy work rather than
+  replacing it.
 - **Real authentication.** The API key is a spending guard. An HTTP API with a Lambda or
   IAM authorizer would be the production choice.
 - **CI/CD.** Deploy from GitHub Actions with OIDC instead of local credentials.

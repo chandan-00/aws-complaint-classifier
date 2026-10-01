@@ -26,8 +26,9 @@ DLQ_URL=$($AWS sqs get-queue-url --queue-name "$DLQ" --query QueueUrl --output t
 DLQ_ARN=$($AWS sqs get-queue-attributes --queue-url "$DLQ_URL" \
   --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
 
-# VisibilityTimeout must be >= 6x the Lambda timeout (60s), or the event source mapping is
-# rejected and messages are redelivered while still being processed (section 25.1).
+# VisibilityTimeout of 6x the Lambda timeout (60s), as AWS recommends. AWS only enforces that it
+# is at least the timeout itself; anything short of the real processing time redelivers
+# messages that are still being processed (section 25.1).
 $AWS sqs create-queue --queue-name "$QUEUE" --attributes "{
   \"VisibilityTimeout\": \"360\",
   \"RedrivePolicy\": \"{\\\"deadLetterTargetArn\\\":\\\"$DLQ_ARN\\\",\\\"maxReceiveCount\\\":\\\"3\\\"}\"

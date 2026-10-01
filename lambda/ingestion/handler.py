@@ -58,7 +58,7 @@ def _post(event: dict) -> dict:
         ContentType="application/json",
     )
 
-    # The message carries a pointer, not the text: SQS caps a body at 256 KB and this
+    # The message carries a pointer, not the text: SQS caps a body at 1 MiB and this
     # contract does not change as inputs grow.
     _sqs.send_message(
         QueueUrl=QUEUE_URL,

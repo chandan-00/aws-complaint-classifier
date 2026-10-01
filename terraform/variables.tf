@@ -26,7 +26,7 @@ variable "inference_memory_mb" {
 }
 
 variable "inference_timeout_s" {
-  description = "SQS visibility is derived from this at 6x (section 25.1)."
+  description = "SQS visibility is derived from this at 6x, AWS's recommendation (section 25.1)."
   type        = number
   default     = 60
 }

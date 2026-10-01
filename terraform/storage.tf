@@ -22,8 +22,9 @@ resource "aws_sqs_queue" "dlq" {
 resource "aws_sqs_queue" "complaints" {
   name = "complaint-queue"
 
-  # AWS rejects the event source mapping below 6x the function timeout, and a shorter
-  # value redelivers messages that are still being processed (section 25.1).
+  # AWS recommends at least 6x the function timeout for SQS event sources; what it
+  # enforces is only that the function timeout not exceed this. Too short a value
+  # redelivers messages that are still being processed (section 25.1).
   visibility_timeout_seconds = 6 * var.inference_timeout_s
 
   redrive_policy = jsonencode({
